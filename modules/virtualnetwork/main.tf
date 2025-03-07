@@ -128,7 +128,7 @@ resource "azapi_resource" "peering_hub_inbound" {
         id = each.value["inbound"].remote_resource_id
       }
       allowVirtualNetworkAccess = true
-      allowForwardedTraffic     = true
+      allowForwardedTraffic     = false
       allowGatewayTransit       = true
       useRemoteGateways         = false
     }
