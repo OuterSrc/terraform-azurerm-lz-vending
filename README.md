@@ -8,7 +8,7 @@
 ## Overview
 
 The landing zone Terraform module is designed to accelerate deployment of individual landing zones within an Azure tenant.
-We use the [AzureRM](https://registry.terraform.io/providers/hashicorp/azurerm/latest) and [AzAPI](https://registry.terraform.io/providers/azure/azapi/latest) providers to create the subscription and deploy the resources in a single `terraform apply` step.
+We use the [AzAPI](https://registry.terraform.io/providers/azure/azapi/latest) provider to create the subscription and deploy the resources in a single `terraform apply` step.
 
 The module is designed to be instantiated many times, once for each desired landing zone.
 
@@ -60,8 +60,6 @@ module "lz_vending" {
   subscription_alias_name    = "my-subscription-alias"
   subscription_workload      = "Production"
 
-  network_watcher_resource_group_enabled = true
-
   # management group association variables
   subscription_management_group_association_enabled = true
   subscription_management_group_id                  = "Corp"
@@ -98,6 +96,10 @@ module "lz_vending" {
 
   resource_group_creation_enabled = true
   resource_groups = {
+    nwrg = {
+      name     = "NetworkWatcherRG"
+      location = "westeurope"
+    }
     myrg = {
       name     = "MyRg"
       location = "westeurope"
@@ -136,9 +138,11 @@ module "lz_vending" {
 
 The following requirements are needed by this module:
 
-- <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) (~> 1.3)
+- <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) (~> 1.10)
 
-- <a name="requirement_azapi"></a> [azapi](#requirement\_azapi) (~> 1.4)
+- <a name="requirement_azapi"></a> [azapi](#requirement\_azapi) (~> 2.2)
+
+- <a name="requirement_time"></a> [time](#requirement\_time) (~> 0.9)
 
 ## Modules
 
@@ -150,13 +154,13 @@ Source: ./modules/budget
 
 Version:
 
-### <a name="module_resourcegroup"></a> [resourcegroup](#module\_resourcegroup)
+### <a name="module_networksecuritygroup"></a> [networksecuritygroup](#module\_networksecuritygroup)
 
-Source: ./modules/resourcegroup
+Source: ./modules/networksecuritygroup
 
 Version:
 
-### <a name="module_resourcegroup_networkwatcherrg"></a> [resourcegroup\_networkwatcherrg](#module\_resourcegroup\_networkwatcherrg)
+### <a name="module_resourcegroup"></a> [resourcegroup](#module\_resourcegroup)
 
 Source: ./modules/resourcegroup
 
@@ -180,6 +184,12 @@ Source: ./modules/roleassignment
 
 Version:
 
+### <a name="module_routetable"></a> [routetable](#module\_routetable)
+
+Source: ./modules/routetable
+
+Version:
+
 ### <a name="module_subscription"></a> [subscription](#module\_subscription)
 
 Source: ./modules/subscription
@@ -199,6 +209,7 @@ Source: ./modules/virtualnetwork
 Version:
 
 <!-- markdownlint-disable MD013 -->
+<!-- markdownlint-disable MD024 -->
 ## Required Inputs
 
 The following input variables are required:
@@ -322,19 +333,83 @@ Type: `bool`
 
 Default: `false`
 
-### <a name="input_network_watcher_resource_group_enabled"></a> [network\_watcher\_resource\_group\_enabled](#input\_network\_watcher\_resource\_group\_enabled)
+### <a name="input_network_security_group_enabled"></a> [network\_security\_group\_enabled](#input\_network\_security\_group\_enabled)
 
-Description: Create `NetworkWatcherRG` in the subscription.
-
-Although this resource group is created automatically by Azure,  
-it is not managed by Terraform and therefore can impede the subscription cancellation process.
-
-Enabling this variable will create the resource group in the subscription and allow Terraform to manage it,  
-which includes destroying the resource (and all resources within it).
+Description: Whether to create network security groups and security rules in the target subscription. Requires `var.network_security_groups`.
 
 Type: `bool`
 
 Default: `false`
+
+### <a name="input_network_security_groups"></a> [network\_security\_groups](#input\_network\_security\_groups)
+
+Description: A map of the network security groups to create. The map key must be known at the plan stage, e.g. must not be calculated and known only after apply.
+
+### Required fields
+
+- `name`: The name of the network security group. Changing this forces a new resource to be created. [required]
+- `resource_group_resource_id`: The resource id of the resource group to create the network security group in. Moving forward, the modules within this accelerator will adopt the standard of requiring the input be a resource id rather than a resource group name. Changing this forces a new resource to be created. [required]
+
+### Location
+
+- `location`: The supported Azure location where the resource exists. Changing this forces a new resource to be created.
+
+### Tags
+
+- `tags`: A map of tags to apply to the virtual network. [optional - default empty]
+
+### Security Rules
+
+- `security_rules` - (Optional) A map of security rules to create within the network network security group. The value is an object with the following fields:
+  - `access` - (Required) Specifies whether network traffic is allowed or denied. Possible values are `Allow` and `Deny`.
+  - `description` - (Optional) A description for this rule. Restricted to 140 characters.
+  - `destination_address_prefix` - (Optional) CIDR or destination IP range or * to match any IP. Tags such as `VirtualNetwork`, `AzureLoadBalancer` and `Internet` can also be used. Besides, it also supports all available Service Tags like ‘Sql.WestEurope‘, ‘Storage.EastUS‘, etc. You can list the available service tags with the CLI: ```shell az network list-service-tags --location westcentralus
+```. For further information please see [Azure CLI
+  - `destination_address_prefixes` - (Optional) List of destination address prefixes. Tags may not be used. This is required if `destination_address_prefix` is not specified.
+  - `destination_application_security_group_ids` - (Optional) A List of destination Application Security Group IDs
+  - `destination_port_range` - (Optional) Destination Port or Range. Integer or range between `0` and `65535` or `*` to match any. This is required if `destination_port_ranges` is not specified.
+  - `destination_port_ranges` - (Optional) List of destination ports or port ranges. This is required if `destination_port_range` is not specified.
+  - `direction` - (Required) The direction specifies if rule will be evaluated on incoming or outgoing traffic. Possible values are `Inbound` and `Outbound`.
+  - `name` - (Required) The name of the security rule. This needs to be unique across all Rules in the Network Security Group. Changing this forces a new resource to be created.
+  - `priority` - (Required) Specifies the priority of the rule. The value can be between 100 and 4096. The priority number must be unique for each rule in the collection. The lower the priority number, the higher the priority of the rule.
+  - `protocol` - (Required) Network protocol this rule applies to. Possible values include `Tcp`, `Udp`, `Icmp`, `Esp`, `Ah` or `*` (which matches all).
+  - `source_address_prefix` - (Optional) CIDR or source IP range or * to match any IP. Tags such as `VirtualNetwork`, `AzureLoadBalancer` and `Internet` can also be used. This is required if `source_address_prefixes` is not specified.
+  - `source_address_prefixes` - (Optional) List of source address prefixes. Tags may not be used. This is required if `source_address_prefix` is not specified.
+  - `source_application_security_group_ids` - (Optional) A List of source Application Security Group IDs
+  - `source_port_range` - (Optional) Source Port or Range. Integer or range between `0` and `65535` or `*` to match any. This is required if `source_port_ranges` is not specified.
+  - `source_port_ranges` - (Optional) List of source ports or port ranges. This is required if `source_port_range` is not specified.
+
+Type:
+
+```hcl
+map(object({
+    name                       = string
+    location                   = optional(string)
+    resource_group_resource_id = string
+    tags                       = optional(map(string))
+
+    security_rules = optional(map(object({
+      access                                     = string
+      description                                = optional(string)
+      destination_address_prefix                 = optional(string)
+      destination_address_prefixes               = optional(set(string))
+      destination_application_security_group_ids = optional(set(string))
+      destination_port_range                     = optional(string)
+      destination_port_ranges                    = optional(set(string))
+      direction                                  = string
+      name                                       = string
+      priority                                   = number
+      protocol                                   = string
+      source_address_prefix                      = optional(string)
+      source_address_prefixes                    = optional(set(string))
+      source_application_security_group_ids      = optional(set(string))
+      source_port_range                          = optional(string)
+      source_port_ranges                         = optional(set(string))
+    })))
+  }))
+```
+
+Default: `{}`
 
 ### <a name="input_resource_group_creation_enabled"></a> [resource\_group\_creation\_enabled](#input\_resource\_group\_creation\_enabled)
 
@@ -352,7 +427,7 @@ Description: A map of the resource groups to create. The value is an object with
 - `location` - the location of the resource group
 - `tags` - (optional) a map of type string
 
-> Do not include the `NetworkWatcherRG` resource group in this map if you have enabled `var.network_watcher_resource_group_enabled`.
+We recommend that you include an entry to create the NetworkWatcherRG resource group so that this is managed by Terraform.
 
 Type:
 
@@ -386,6 +461,8 @@ Object fields:
 - `relative_scope`: (optional) Scope relative to the created subscription. Omit, or leave blank for subscription scope.
 - `condition`: (optional) A condition to apply to the role assignment. See [Conditions Custom Security Attributes](https://learn.microsoft.com/azure/role-based-access-control/conditions-custom-security-attributes) for more details.
 - `condition_version`: (optional) The version of the condition syntax. See [Conditions Custom Security Attributes](https://learn.microsoft.com/azure/role-based-access-control/conditions-custom-security-attributes) for more details.
+- `principal_type`: (optional) The type of the principal. Can be `"User"`, `"Group"`, `"Device"`, `"ForeignGroup"`, or `"ServicePrincipal"`.
+- `definition_lookup_enabled`: (optional) Whether to look up the role definition resource id from the role definition name. If disabled, the `definition` must be a role definition resource id. Default is `true`.
 
 E.g.
 
@@ -412,11 +489,57 @@ Type:
 
 ```hcl
 map(object({
-    principal_id      = string,
-    definition        = string,
-    relative_scope    = optional(string, ""),
-    condition         = optional(string, ""),
-    condition_version = optional(string, ""),
+    principal_id              = string,
+    definition                = string,
+    relative_scope            = optional(string, "")
+    condition                 = optional(string)
+    condition_version         = optional(string)
+    principal_type            = optional(string)
+    definition_lookup_enabled = optional(bool, true)
+  }))
+```
+
+Default: `{}`
+
+### <a name="input_route_table_enabled"></a> [route\_table\_enabled](#input\_route\_table\_enabled)
+
+Description: Whether to create route tables and routes in the target subscription. Requires `var.route_tables`.
+
+Type: `bool`
+
+Default: `false`
+
+### <a name="input_route_tables"></a> [route\_tables](#input\_route\_tables)
+
+Description: A map defining route tables and their associated routes to be created:
+
+- `name` (required): The name of the route table.
+- `location` (required): The location of the resource group.
+- `resource_group_name` (required): The name of the resource group.
+- `bgp_route_propagation_enabled` (optional): Boolean that controls whether routes learned by BGP are propagated to the route table. Default is `true`.
+- `tags` (optional): A map of key-value pairs for tags associated with the route table.
+- `routes` (optional): A map defining routes for the route table. Each route object has the following properties:
+  - `name` (required): The name of the route.
+  - `address_prefix` (required): The address prefix for the route.
+  - `next_hop_type` (required): The type of next hop for the route.
+  - `next_hop_in_ip_address` (required): The next hop IP address for the route.
+
+Type:
+
+```hcl
+map(object({
+    name                          = string
+    location                      = string
+    resource_group_name           = string
+    bgp_route_propagation_enabled = optional(bool, true)
+    tags                          = optional(map(string))
+
+    routes = optional(map(object({
+      name                   = string
+      address_prefix         = string
+      next_hop_type          = string
+      next_hop_in_ip_address = string
+    })))
   }))
 ```
 
@@ -460,7 +583,7 @@ In this scenario, `subscription_enabled` should be set to `false` and `subscript
 
 Type: `string`
 
-Default: `""`
+Default: `null`
 
 ### <a name="input_subscription_billing_scope"></a> [subscription\_billing\_scope](#input\_subscription\_billing\_scope)
 
@@ -479,7 +602,7 @@ In this scenario, `subscription_enabled` should be set to `false` and `subscript
 
 Type: `string`
 
-Default: `""`
+Default: `null`
 
 ### <a name="input_subscription_display_name"></a> [subscription\_display\_name](#input\_subscription\_display\_name)
 
@@ -493,7 +616,7 @@ In this scenario, `subscription_enabled` should be set to `false` and `subscript
 
 Type: `string`
 
-Default: `""`
+Default: `null`
 
 ### <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id)
 
@@ -518,11 +641,11 @@ In this scenario, `subscription_alias_enabled` should be set to `true` and the f
 
 Type: `string`
 
-Default: `""`
+Default: `null`
 
 ### <a name="input_subscription_management_group_association_enabled"></a> [subscription\_management\_group\_association\_enabled](#input\_subscription\_management\_group\_association\_enabled)
 
-Description: Whether to create the `azurerm_management_group_subscription_association` resource.
+Description: Whether to create the management group association resource.
 
 If enabled, the `subscription_management_group_id` must also be supplied.
 
@@ -540,7 +663,7 @@ The management group ID forms part of the Azure resource ID. E.g.,
 
 Type: `string`
 
-Default: `""`
+Default: `null`
 
 ### <a name="input_subscription_register_resource_providers_and_features"></a> [subscription\_register\_resource\_providers\_and\_features](#input\_subscription\_register\_resource\_providers\_and\_features)
 
@@ -600,7 +723,6 @@ Default:
   "Microsoft.Management": [],
   "Microsoft.Maps": [],
   "Microsoft.MarketplaceOrdering": [],
-  "Microsoft.Media": [],
   "Microsoft.MixedReality": [],
   "Microsoft.Network": [],
   "Microsoft.NotificationHubs": [],
@@ -661,27 +783,6 @@ Type: `bool`
 
 Default: `false`
 
-### <a name="input_subscription_use_azapi"></a> [subscription\_use\_azapi](#input\_subscription\_use\_azapi)
-
-Description: Whether to create a new subscription using the azapi provider. This may be required if the principal running  
-terraform does not have the required permissions to create a subscription under the default management group.  
-If enabled, the following must also be supplied:
-- `subscription_alias_name`
-- `subscription_display_name`
-- `subscription_billing_scope`
-- `subscription_workload`  
-Optionally, supply the following to enable the placement of the subscription into a management group:
-- `subscription_management_group_id`
-- `subscription_management_group_association_enabled`  
-If disabled, supply the `subscription_id` variable to use an existing subscription instead.
-> **Note**: When the subscription is destroyed, this module will try to remove the NetworkWatcherRG resource group using `az cli`.
-> This requires the `az cli` tool be installed and authenticated.
-> If the command fails for any reason, the provider will attempt to cancel the subscription anyway.
-
-Type: `bool`
-
-Default: `false`
-
 ### <a name="input_subscription_workload"></a> [subscription\_workload](#input\_subscription\_workload)
 
 Description: The billing scope for the new subscription alias.
@@ -693,180 +794,118 @@ In this scenario, `subscription_enabled` should be set to `false` and `subscript
 
 Type: `string`
 
-Default: `""`
+Default: `null`
 
 ### <a name="input_umi_enabled"></a> [umi\_enabled](#input\_umi\_enabled)
 
 Description: Whether to enable the creation of a user-assigned managed identity.
 
-Requires `umi_name` and `umi_resosurce_group_name` to be non-empty.
+Requires `umi.name` and `umi.resosurce_group_name` to be non-empty.
 
 Type: `bool`
 
 Default: `false`
 
-### <a name="input_umi_federated_credentials_advanced"></a> [umi\_federated\_credentials\_advanced](#input\_umi\_federated\_credentials\_advanced)
+### <a name="input_user_managed_identities"></a> [user\_managed\_identities](#input\_user\_managed\_identities)
 
-Description: Configure federated identity credentials, using OpenID Connect, for use scenarios outside GitHub Actions and Terraform Cloud.
+Description: A map of user-managed identities to create. The map key must be known at the plan stage, e.g. must not be calculated and known only after apply. The value is a map of attributes.
 
-The may key is arbitrary and only used for the `for_each` in the resource declaration.
+### Required fields
 
-The map value is an object with the following attributes:
+- `name`: The name of the user-assigned managed identity. [required]
+- `resource_group_name`: The name of the resource group to create the user-assigned managed identity in. [required]
 
-- `name`: The name of the federated credential resource, the last segment of the Azure resource id.
-- `subject_identifier`: The subject of the token.
-- `issuer_url`: The URL of the token issuer, should begin with `https://`
-- `audience`: (optional) The token audience, defaults to `api://AzureADTokenExchange`.
+### Optional fields
 
-Type:
+- `location`: The location of the user-assigned managed identity. [optional]
+- `tags`: The tags to apply to the user-assigned managed identity. [optional]
 
-```hcl
-map(object({
-    name               = string
-    subject_identifier = string
-    issuer_url         = string
-    audiences          = optional(set(string), ["api://AzureADTokenExchange"])
-  }))
-```
+### Resource group values [DEPRECATED]
 
-Default: `{}`
+**Note:** The creation of resource groups should be done using the resource module, in v6.0.0 these variables will be retired.
 
-### <a name="input_umi_federated_credentials_github"></a> [umi\_federated\_credentials\_github](#input\_umi\_federated\_credentials\_github)
+- `resource_group_creation_enabled`: Whether to create a resource group for the user managed identity. [optional - default `true`]
+- `resource_group_tags`: The tags to apply to the user-assigned managed identity resource group, if we create it. [optional]
+- `resource_group_lock_enabled`: Whether to enable resource group lock for the user-assigned managed identity resource group. [optional]
+- `resource_group_lock_name`: The name of the resource group lock for the user-assigned managed identity resource group, if blank will be set to `lock-<resource_group_name>`. [optional]
 
-Description: Configure federated identity credentials, using OpenID Connect, for use in GitHub actions.
+### Role Based Access Control (RBAC)
 
-The may key is arbitrary and only used for the `for_each` in the resource declaration.
+The following fields are used to configure role assignments for the user-assigned managed identity.
+- `role_assignments`: A map of role assignments to create for the user-assigned managed identity. [optional] - See `role_assignments` variable for details.
 
-The map value is an object with the following attributes:
+### Federated Credentials
 
-- `name` - the name of the federated credential resource, the last segment of the Azure resource id.
-- `organization` - the name of the GitHub organization, e.g. `Azure` in `https://github.com/Azure/terraform-azurerm-lz-vending`.
-- `repository` - the name of the GitHub respository, e.g. `terraform-azurerm-lz-vending` in `https://github.com/Azure/terraform-azurerm-lz-vending`.
-- `entity` - one of 'environment', 'pull\_request', 'tag', or 'branch'
-- `value` - identifies the `entity` type, e.g. `main` when using entity is `branch`. Should be blank when `entity` is `pull_request`.
+The following fields are used to configure federated identity credentials, using OpenID Connect, for use in GitHub actions, Azure DevOps pipelines, and Terraform Cloud.
 
-Type:
+#### GitHub Actions
 
-```hcl
-map(object({
-    name         = optional(string, "")
-    organization = string
-    repository   = string
-    entity       = string
-    value        = optional(string, "")
-  }))
-```
+- `federated_credentials_github`: A map of federated credentials to create for the user-assigned managed identity. [optional]
+  - `name` - the name of the federated credential resource, the last segment of the Azure resource id.
+  - `organization` - the name of the GitHub organization, e.g. `Azure` in `https://github.com/Azure/terraform-azurerm-lz-vending`.
+  - `repository` - the name of the GitHub respository, e.g. `terraform-azurerm-lz-vending` in `https://github.com/Azure/terraform-azurerm-lz-vending`.
+  - `entity` - one of 'environment', 'pull\_request', 'tag', or 'branch'
+  - `value` - identifies the `entity` type, e.g. `main` when using entity is `branch`. Should be blank when `entity` is `pull_request`.
 
-Default: `{}`
+#### Terraform Cloud
 
-### <a name="input_umi_federated_credentials_terraform_cloud"></a> [umi\_federated\_credentials\_terraform\_cloud](#input\_umi\_federated\_credentials\_terraform\_cloud)
+- `federated_credentials_terraform_cloud`: A map of federated credentials to create for the user-assigned managed identity. [optional]
+  - `name` - the name of the federated credential resource, the last segment of the Azure resource id.
+  - `organization` - the name of the Terraform Cloud organization.
+  - `project` - the name of the Terraform Cloud project.
+  - `workspace` - the name of the Terraform Cloud workspace.
+  - `run_phase` - one of `plan`, or `apply`.
 
-Description: Configure federated identity credentials, using OpenID Connect, for use in Terraform Cloud.
+#### Advanced Federated Credentials
 
-The may key is arbitrary and only used for the `for_each` in the resource declaration.
-
-The map value is an object with the following attributes:
-
-- `name` - the name of the federated credential resource, the last segment of the Azure resource id.
-- `organization` - the name of the Terraform Cloud organization.
-- `project` - the name of the Terraform Cloud project.
-- `workspace` - the name of the Terraform Cloud workspace.
-- `run_phase` - one of `plan`, or `apply`.
+- `federated_credentials_advanced`: A map of federated credentials to create for the user-assigned managed identity. [optional]
+  - `name`: The name of the federated credential resource, the last segment of the Azure resource id.
+  - `subject_identifier`: The subject of the token.
+  - `issuer_url`: The URL of the token issuer, should begin with `https://`
+  - `audience`: (optional) The token audience, defaults to `api://AzureADTokenExchange`.
 
 Type:
 
 ```hcl
 map(object({
-    name         = optional(string, "")
-    organization = string
-    project      = string
-    workspace    = string
-    run_phase    = string
+    name                            = string
+    resource_group_name             = string
+    location                        = optional(string)
+    tags                            = optional(map(string), {})
+    resource_group_creation_enabled = optional(bool, true)
+    resource_group_tags             = optional(map(string), {})
+    resource_group_lock_enabled     = optional(bool, true)
+    resource_group_lock_name        = optional(string)
+    role_assignments = optional(map(object({
+      definition                = string
+      relative_scope            = optional(string, "")
+      condition                 = optional(string)
+      condition_version         = optional(string)
+      principal_type            = optional(string)
+      definition_lookup_enabled = optional(bool, true)
+    })), {})
+    federated_credentials_github = optional(map(object({
+      name         = optional(string)
+      organization = string
+      repository   = string
+      entity       = string
+      value        = optional(string)
+    })), {})
+    federated_credentials_terraform_cloud = optional(map(object({
+      name         = optional(string)
+      organization = string
+      project      = string
+      workspace    = string
+      run_phase    = string
+    })), {})
+    federated_credentials_advanced = optional(map(object({
+      name               = string
+      subject_identifier = string
+      issuer_url         = string
+      audiences          = optional(set(string), ["api://AzureADTokenExchange"])
+    })), {})
   }))
 ```
-
-Default: `{}`
-
-### <a name="input_umi_name"></a> [umi\_name](#input\_umi\_name)
-
-Description: The name of the user-assigned managed identity
-
-Type: `string`
-
-Default: `""`
-
-### <a name="input_umi_resource_group_creation_enabled"></a> [umi\_resource\_group\_creation\_enabled](#input\_umi\_resource\_group\_creation\_enabled)
-
-Description: Whether to create the supplied resource group for the user-assigned managed identity
-
-Type: `bool`
-
-Default: `true`
-
-### <a name="input_umi_resource_group_lock_enabled"></a> [umi\_resource\_group\_lock\_enabled](#input\_umi\_resource\_group\_lock\_enabled)
-
-Description: Whether to enable resource group lock for the user-assigned managed identity resource group
-
-Type: `bool`
-
-Default: `true`
-
-### <a name="input_umi_resource_group_lock_name"></a> [umi\_resource\_group\_lock\_name](#input\_umi\_resource\_group\_lock\_name)
-
-Description: The name of the resource group lock for the user-assigned managed identity resource group, if blank will be set to `lock-<resource_group_name>`
-
-Type: `string`
-
-Default: `""`
-
-### <a name="input_umi_resource_group_name"></a> [umi\_resource\_group\_name](#input\_umi\_resource\_group\_name)
-
-Description: The name of the resource group in which to create the user-assigned managed identity
-
-Type: `string`
-
-Default: `""`
-
-### <a name="input_umi_resource_group_tags"></a> [umi\_resource\_group\_tags](#input\_umi\_resource\_group\_tags)
-
-Description: The tags to apply to the user-assigned managed identity resource group, if we create it.
-
-Type: `map(string)`
-
-Default: `{}`
-
-### <a name="input_umi_role_assignments"></a> [umi\_role\_assignments](#input\_umi\_role\_assignments)
-
-Description: Supply a map of objects containing the details of the role assignments to create for the user-assigned managed identity.  
-This will be merged with the other role assignments specified in `var.role_assignments`.
-
-The role assignments can be used resource groups created by the `var.resource_groups` map.
-
-Requires both `var.umi_enabled` and `var.role_assignment_enabled` to be `true`.
-
-Object fields:
-
-- `definition`: The role definition to assign. Either use the name or the role definition resource id.
-- `relative_scope`: Scope relative to the created subscription. Leave blank for subscription scope.
-
-Type:
-
-```hcl
-map(object({
-    definition        = string
-    relative_scope    = optional(string, "")
-    condition         = optional(string, "")
-    condition_version = optional(string, "")
-  }))
-```
-
-Default: `{}`
-
-### <a name="input_umi_tags"></a> [umi\_tags](#input\_umi\_tags)
-
-Description: The tags to apply to the user-assigned managed identity
-
-Type: `map(string)`
 
 Default: `{}`
 
@@ -904,16 +943,57 @@ Description: A map of the virtual networks to create. The map key must be known 
 > Note at least one of `location` or `var.location` must be specified.
 > If both are empty then the module will fail.
 
+#### Subnets
+
+- `subnets` - (Optional) A map of subnets to create in the virtual network. The value is an object with the following fields:
+  - `name` - The name of the subnet.
+  - `address_prefixes` - The IPv4 address prefixes to use for the subnet in CIDR format.
+  - `nat_gateway` - (Optional) An object with the following fields:
+    - `id` - The ID of the NAT Gateway which should be associated with the Subnet. Changing this forces a new resource to be created.
+  - `network_security_group` - (Optional) An object with the following fields:
+    - `id` - The ID of the Network Security Group which should be associated with the Subnet. Changing this forces a new association to be created.
+    - `key_reference` - The name of the var.network\_security\_group map key that should be associated with the subnet once it has been provisioned. If you are passing in an `id` value, this will not be used.
+  - `private_endpoint_network_policies_enabled` - (Optional) Enable or Disable network policies for the private endpoint on the subnet. Setting this to true will Enable the policy and setting this to false will Disable the policy. Defaults to true.
+  - `private_link_service_network_policies_enabled` - (Optional) Enable or Disable network policies for the private link service on the subnet. Setting this to true will Enable the policy and setting this to false will Disable the policy. Defaults to true.
+  - `route_table` - (Optional) An object with the following fields which are mutually exclusive, choose either an external route table or the generated route table:
+    - `id` - The ID of the Route Table which should be associated with the Subnet. Changing this forces a new association to be created.
+    - `key_reference` - The name of the var.route\_tables map key that should be associated with the subnet once it has been provisioned. If you are passing in an `id` value, this will not be used.
+  - `default_outbound_access_enabled` - (Optional) Whether to allow internet access from the subnet. Defaults to `false`.
+  - `service_endpoints` - (Optional) The list of Service endpoints to associate with the subnet.
+  - `service_endpoint_policies` - (Optional) The list of Service Endpoint Policy objects with the resource id to associate with the subnet.
+    - `id` - The ID of the endpoint policy that should be associated with the subnet.
+  - `service_endpoint_policy_assignment_enabled` - (Optional) Should the Service Endpoint Policy be assigned to the subnet? Default `true`.
+  - `delegation` - (Optional) An object with the following fields:
+    - `name` - The name of the delegation.
+    - `service_delegation` - An object with the following fields:
+      - `name` - The name of the service delegation.
+      - `actions` - A list of actions that should be delegated, the list is specific to the service being delegated.
+
 ### Hub network peering values
 
-The following values configure bi-directional hub & spoke peering for the given virtual network.
+The following values configure bi-directional hub & spoke peering for the given virtual network:
 
 - `hub_peering_enabled`: Whether to enable hub peering. [optional]
 - `hub_peering_direction`: The direction of the peering. [optional - allowed values are: `tohub`, `fromhub` or `both` - default `both`]
 - `hub_network_resource_id`: The resource ID of the hub network to peer with. [optional - but required if hub\_peering\_enabled is `true`]
 - `hub_peering_name_tohub`: The name of the peering to the hub network. [optional - leave empty to use calculated name]
 - `hub_peering_name_fromhub`: The name of the peering from the hub network. [optional - leave empty to use calculated name]
-- `hub_peering_use_remote_gateways`: Whether to use remote gateways for the hub peering. [optional - default true]
+
+#### Hub network peering options
+
+The following values configure the options for the hub network peering. These are configurable in each direction:
+
+- `allow_forwarded_traffic`: Whether to allow forwarded traffic for the peering. [optional - default `true`]
+- `allow_gateway_transit`: Whether to allow gateway transit for the peering. [optional - default `false` (outbound) or `true` (inbound)]
+- `allow_virtual_network_access`: Whether to allow virtual network access for the peering. [optional - default `true`]
+- `do_not_verify_remote_gateways`: Whether to not verify remote gateways for the peering. [optional - default `false`]
+- `enable_only_ipv6_peering`: Whether to enable only IPv6 peering. [optional - default `false`]
+- `local_peered_address_spaces`: A list of local address spaces to peer with. [optional - default empty and only used if `peer_complete_vnets` is `false`]
+- `local_peered_subnets`: A list of local subnets to peer with. [optional - default empty and only used if `peer_complete_vnets` is `false`]
+- `peer_complete_vnets`: Whether to peer complete virtual networks. [optional - default `true`]
+- `remote_peered_address_spaces`: A list of remote address spaces to peer with. [optional - default empty and only used if `peer_complete_vnets` is `false`]
+- `remote_peered_subnets`: A list of remote subnets to peer with. [optional - default empty and only used if `peer_complete_vnets` is `false`]
+- `use_remote_gateways`: Whether to use remote gateways for the peering. [optional - default `true` (outbound) or `false` (inbound)]
 
 ### Mesh peering values
 
@@ -923,7 +1003,9 @@ Peerings will only be created between virtual networks with the `mesh_peering_en
 - `mesh_peering_enabled`: Whether to enable mesh peering for this virtual network. Must be enabled on more than one virtual network for any peerings to be created. [optional]
 - `mesh_peering_allow_forwarded_traffic`: Whether to allow forwarded traffic for the mesh peering. [optional - default false]
 
-### Resource group values
+### Resource group values [DEPRECATED]
+
+**Note:** The creation of resource groups should be done using the resource module, in v6.0.0 these variables will be retired from the virtual network objects.
 
 The default is that a resource group will be created for each resource\_group\_name specified in the `var.virtual_networks` map.  
 It is possible to use a pre-existing resource group by setting `resource_group_creation_enabled` to `false`.  
@@ -961,32 +1043,93 @@ map(object({
     address_space       = list(string)
     resource_group_name = string
 
-    location = optional(string, "")
+    location = optional(string)
 
-    dns_servers = optional(list(string), [])
+    dns_servers             = optional(list(string), [])
+    flow_timeout_in_minutes = optional(number)
 
     ddos_protection_enabled = optional(bool, false)
-    ddos_protection_plan_id = optional(string, "")
+    ddos_protection_plan_id = optional(string)
 
-    hub_network_resource_id         = optional(string, "")
-    hub_peering_enabled             = optional(bool, false)
-    hub_peering_direction           = optional(string, "both")
-    hub_peering_name_tohub          = optional(string, "")
-    hub_peering_name_fromhub        = optional(string, "")
-    hub_peering_use_remote_gateways = optional(bool, true)
+    subnets = optional(map(object(
+      {
+        name             = string
+        address_prefixes = list(string)
+        nat_gateway = optional(object({
+          id = string
+        }))
+        network_security_group = optional(object({
+          id            = optional(string)
+          key_reference = optional(string)
+        }))
+        private_endpoint_network_policies             = optional(string, "Enabled")
+        private_link_service_network_policies_enabled = optional(bool, true)
+        route_table = optional(object({
+          id            = optional(string)
+          key_reference = optional(string)
+        }))
+        default_outbound_access_enabled = optional(bool, false)
+        service_endpoints               = optional(set(string))
+        service_endpoint_policies = optional(map(object({
+          id = string
+        })))
+        delegations = optional(list(
+          object(
+            {
+              name = string
+              service_delegation = object({
+                name = string
+              })
+            }
+          )
+        ))
+      }
+    )), {})
+
+    hub_network_resource_id = optional(string)
+    hub_peering_enabled     = optional(bool, false)
+    hub_peering_direction   = optional(string, "both")
+    hub_peering_name_tohub  = optional(string)
+    hub_peering_options_tohub = optional(object({
+      allow_forwarded_traffic       = optional(bool, true)
+      allow_gateway_transit         = optional(bool, false)
+      allow_virtual_network_access  = optional(bool, true)
+      do_not_verify_remote_gateways = optional(bool, false)
+      enable_only_ipv6_peering      = optional(bool, false)
+      local_peered_address_spaces   = optional(list(string), [])
+      local_peered_subnets          = optional(list(string), [])
+      peer_complete_vnets           = optional(bool, true)
+      remote_peered_address_spaces  = optional(list(string), [])
+      remote_peered_subnets         = optional(list(string), [])
+      use_remote_gateways           = optional(bool, true)
+    }), {})
+    hub_peering_name_fromhub = optional(string)
+    hub_peering_options_fromhub = optional(object({
+      allow_forwarded_traffic       = optional(bool, true)
+      allow_gateway_transit         = optional(bool, true)
+      allow_virtual_network_access  = optional(bool, true)
+      do_not_verify_remote_gateways = optional(bool, false)
+      enable_only_ipv6_peering      = optional(bool, false)
+      local_peered_address_spaces   = optional(list(string), [])
+      local_peered_subnets          = optional(list(string), [])
+      peer_complete_vnets           = optional(bool, true)
+      remote_peered_address_spaces  = optional(list(string), [])
+      remote_peered_subnets         = optional(list(string), [])
+      use_remote_gateways           = optional(bool, false)
+    }), {})
 
     mesh_peering_enabled                 = optional(bool, false)
     mesh_peering_allow_forwarded_traffic = optional(bool, false)
 
     resource_group_creation_enabled = optional(bool, true)
     resource_group_lock_enabled     = optional(bool, true)
-    resource_group_lock_name        = optional(string, "")
+    resource_group_lock_name        = optional(string)
     resource_group_tags             = optional(map(string), {})
 
-    vwan_associated_routetable_resource_id   = optional(string, "")
+    vwan_associated_routetable_resource_id   = optional(string)
     vwan_connection_enabled                  = optional(bool, false)
-    vwan_connection_name                     = optional(string, "")
-    vwan_hub_resource_id                     = optional(string, "")
+    vwan_connection_name                     = optional(string)
+    vwan_hub_resource_id                     = optional(string)
     vwan_propagated_routetables_labels       = optional(list(string), [])
     vwan_propagated_routetables_resource_ids = optional(list(string), [])
     vwan_security_configuration = optional(object({
@@ -1016,20 +1159,48 @@ object({
 
 Default: `{}`
 
+### <a name="input_wait_for_umi_before_umi_role_assignment_operations"></a> [wait\_for\_umi\_before\_umi\_role\_assignment\_operations](#input\_wait\_for\_umi\_before\_umi\_role\_assignment\_operations)
+
+Description: The duration to wait after creating a user managed identity before performing role assignment operations.
+
+Type:
+
+```hcl
+object({
+    create  = optional(string, "30s")
+    destroy = optional(string, "0s")
+  })
+```
+
+Default: `{}`
+
 ## Resources
 
 The following resources are used by this module:
 
-- [azapi_resource.telemetry_root](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) (resource)
+- [azapi_resource.telemetry_root](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) (resource)
+- [time_sleep.wait_for_umi_before_umi_role_assignment_operations](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) (resource)
 
 ## Outputs
 
 The following outputs are exported:
 
+### <a name="output_budget_resource_id"></a> [budget\_resource\_id](#output\_budget\_resource\_id)
+
+Description: The created budget resource IDs, expressed as a map.
+
 ### <a name="output_management_group_subscription_association_id"></a> [management\_group\_subscription\_association\_id](#output\_management\_group\_subscription\_association\_id)
 
 Description: The management\_group\_subscription\_association\_id output is the ID of the management group subscription association.  
 Value will be null if `var.subscription_management_group_association_enabled` is false.
+
+### <a name="output_resource_group_resource_ids"></a> [resource\_group\_resource\_ids](#output\_resource\_group\_resource\_ids)
+
+Description: The created resource group IDs, expressed as a map.
+
+### <a name="output_route_table_resource_ids"></a> [route\_table\_resource\_ids](#output\_route\_table\_resource\_ids)
+
+Description: The created route table resource IDs, expressed as a map.
 
 ### <a name="output_subscription_id"></a> [subscription\_id](#output\_subscription\_id)
 
@@ -1039,22 +1210,22 @@ Description: The subscription\_id is the Azure subscription id that resources ha
 
 Description: The subscription\_resource\_id is the Azure subscription resource id that resources have been deployed into
 
-### <a name="output_umi_client_id"></a> [umi\_client\_id](#output\_umi\_client\_id)
+### <a name="output_umi_client_ids"></a> [umi\_client\_ids](#output\_umi\_client\_ids)
 
 Description: The client id of the user managed identity.  
 Value will be null if `var.umi_enabled` is false.
 
-### <a name="output_umi_id"></a> [umi\_id](#output\_umi\_id)
-
-Description: The Azure resource id of the user managed identity.  
-Value will be null if `var.umi_enabled` is false.
-
-### <a name="output_umi_principal_id"></a> [umi\_principal\_id](#output\_umi\_principal\_id)
+### <a name="output_umi_principal_ids"></a> [umi\_principal\_ids](#output\_umi\_principal\_ids)
 
 Description: The principal id of the user managed identity, sometimes known as the object id.  
 Value will be null if `var.umi_enabled` is false.
 
-### <a name="output_umi_tenant_id"></a> [umi\_tenant\_id](#output\_umi\_tenant\_id)
+### <a name="output_umi_resource_ids"></a> [umi\_resource\_ids](#output\_umi\_resource\_ids)
+
+Description: The Azure resource id of the user managed identity.  
+Value will be null if `var.umi_enabled` is false.
+
+### <a name="output_umi_tenant_ids"></a> [umi\_tenant\_ids](#output\_umi\_tenant\_ids)
 
 Description: The tenant id of the user managed identity.  
 Value will be null if `var.umi_enabled` is false.

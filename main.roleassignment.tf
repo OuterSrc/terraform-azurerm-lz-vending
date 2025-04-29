@@ -3,7 +3,6 @@
 module "roleassignment" {
   source = "./modules/roleassignment"
   depends_on = [
-    module.resourcegroup_networkwatcherrg,
     module.resourcegroup,
     module.subscription,
     module.usermanagedidentity,
@@ -17,21 +16,34 @@ module "roleassignment" {
   role_assignment_condition_version = each.value.condition_version
 }
 
+resource "time_sleep" "wait_for_umi_before_umi_role_assignment_operations" {
+  count = length(local.user_managed_identity_role_assignments) > 0 ? 1 : 0
+
+  create_duration  = var.wait_for_umi_before_umi_role_assignment_operations.create
+  destroy_duration = var.wait_for_umi_before_umi_role_assignment_operations.destroy
+
+  depends_on = [
+    module.usermanagedidentity
+  ]
+}
+
 # The roleassignments_umi module creates role assignments from the data
-# supplied in the var.umi_role_assignments variable
+# supplied in the var.user_managed_identities object role_assignments property
 module "roleassignment_umi" {
   source = "./modules/roleassignment"
   depends_on = [
-    module.resourcegroup_networkwatcherrg,
     module.resourcegroup,
     module.subscription,
-    module.usermanagedidentity,
+    time_sleep.wait_for_umi_before_umi_role_assignment_operations,
     module.virtualnetwork,
   ]
-  for_each                          = { for k, v in var.umi_role_assignments : k => v if var.umi_enabled }
-  role_assignment_principal_id      = one(module.usermanagedidentity).principal_id
-  role_assignment_definition        = each.value.definition
-  role_assignment_scope             = "${local.subscription_resource_id}${each.value.relative_scope}"
-  role_assignment_condition         = each.value.condition
-  role_assignment_condition_version = each.value.condition_version
+  for_each = local.user_managed_identity_role_assignments
+
+  role_assignment_principal_id              = each.value.principal_id
+  role_assignment_definition                = each.value.definition
+  role_assignment_scope                     = each.value.scope
+  role_assignment_condition                 = each.value.condition
+  role_assignment_condition_version         = each.value.condition_version
+  role_assignment_principal_type            = each.value.principal_type
+  role_assignment_definition_lookup_enabled = each.value.definition_lookup_enabled
 }

@@ -7,7 +7,7 @@
 ## Overview
 
 The landing zone Terraform module is designed to accelerate deployment of individual landing zones within an Azure tenant.
-We use the [AzureRM](https://registry.terraform.io/providers/hashicorp/azurerm/latest) and [AzAPI](https://registry.terraform.io/providers/azure/azapi/latest) providers to create the subscription and deploy the resources in a single `terraform apply` step.
+We use the [AzAPI](https://registry.terraform.io/providers/azure/azapi/latest) provider to create the subscription and deploy the resources in a single `terraform apply` step.
 
 The module is designed to be instantiated many times, once for each desired landing zone.
 
@@ -59,8 +59,6 @@ module "lz_vending" {
   subscription_alias_name    = "my-subscription-alias"
   subscription_workload      = "Production"
 
-  network_watcher_resource_group_enabled = true
-
   # management group association variables
   subscription_management_group_association_enabled = true
   subscription_management_group_id                  = "Corp"
@@ -97,6 +95,10 @@ module "lz_vending" {
 
   resource_group_creation_enabled = true
   resource_groups = {
+    nwrg = {
+      name     = "NetworkWatcherRG"
+      location = "westeurope"
+    }
     myrg = {
       name     = "MyRg"
       location = "westeurope"

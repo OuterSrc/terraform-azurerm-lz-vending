@@ -67,22 +67,23 @@ module "umi" {
 
 The following requirements are needed by this module:
 
-- <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) (>= 1.3.0)
+- <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) (~> 1.10)
 
-- <a name="requirement_azapi"></a> [azapi](#requirement\_azapi) (>= 1.11.0)
+- <a name="requirement_azapi"></a> [azapi](#requirement\_azapi) (~> 2.2)
 
 ## Modules
 
 No modules.
 
 <!-- markdownlint-disable MD013 -->
+<!-- markdownlint-disable MD024 -->
 ## Required Inputs
 
 The following input variables are required:
 
 ### <a name="input_location"></a> [location](#input\_location)
 
-Description: The name of the user-assigned managed identity
+Description: The location of the user-assigned managed identity
 
 Type: `string`
 
@@ -152,11 +153,11 @@ Type:
 
 ```hcl
 map(object({
-    name         = optional(string, "")
+    name         = optional(string)
     organization = string
     repository   = string
     entity       = string
-    value        = optional(string, "")
+    value        = optional(string)
   }))
 ```
 
@@ -180,7 +181,7 @@ Type:
 
 ```hcl
 map(object({
-    name         = optional(string, "")
+    name         = optional(string)
     organization = string
     project      = string
     workspace    = string
@@ -192,7 +193,11 @@ Default: `{}`
 
 ### <a name="input_resource_group_creation_enabled"></a> [resource\_group\_creation\_enabled](#input\_resource\_group\_creation\_enabled)
 
-Description: Whether to create the supplied resource group for the user-assigned managed identity
+Description: Resource group values DEPRECATED
+
+The creation of resource groups should be done using the resource module, in v6.0.0 these variables will be retired from the virtual network objects.
+
+Whether to create the supplied resource group for the user-assigned managed identity
 
 Type: `bool`
 
@@ -200,7 +205,11 @@ Default: `true`
 
 ### <a name="input_resource_group_lock_enabled"></a> [resource\_group\_lock\_enabled](#input\_resource\_group\_lock\_enabled)
 
-Description: Whether to enable resource group lock for the user-assigned managed identity resource group
+Description: Resource group values DEPRECATED
+
+The creation of resource groups should be done using the resource module, in v6.0.0 these variables will be retired from the virtual network objects.
+
+Whether to enable resource group lock for the user-assigned managed identity resource group
 
 Type: `bool`
 
@@ -208,15 +217,23 @@ Default: `true`
 
 ### <a name="input_resource_group_lock_name"></a> [resource\_group\_lock\_name](#input\_resource\_group\_lock\_name)
 
-Description: The name of the resource group lock for the user-assigned managed identity resource group, if blank will be set to `lock-<resource_group_name>`
+Description: Resource group values DEPRECATED
+
+The creation of resource groups should be done using the resource module, in v6.0.0 these variables will be retired from the virtual network objects.
+
+The name of the resource group lock for the user-assigned managed identity resource group, if `null` will be set to `lock-<resource_group_name>`
 
 Type: `string`
 
-Default: `""`
+Default: `null`
 
 ### <a name="input_resource_group_tags"></a> [resource\_group\_tags](#input\_resource\_group\_tags)
 
-Description: The tags to apply to the user-assigned managed identity resource group, if we create it.
+Description: Resource group values DEPRECATED
+
+The creation of resource groups should be done using the resource module, in v6.0.0 these variables will be retired from the virtual network objects.
+
+The tags to apply to the user-assigned managed identity resource group, if we create it.
 
 Type: `map(string)`
 
@@ -256,13 +273,13 @@ Description: The client id of the user managed identity
 
 Description: The object id of the user managed identity
 
+### <a name="output_resource_id"></a> [resource\_id](#output\_resource\_id)
+
+Description: The resource id of the user managed identity
+
 ### <a name="output_tenant_id"></a> [tenant\_id](#output\_tenant\_id)
 
 Description: The tenant id of the user managed identity
-
-### <a name="output_umi_id"></a> [umi\_id](#output\_umi\_id)
-
-Description: The resource id of the user managed identity
 
 <!-- markdownlint-enable -->
 <!-- END_TF_DOCS -->
